@@ -1,0 +1,11 @@
+{
+  "name": "timetracker-api",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@azure/cosmos": "^4.0.0",
+    "@azure/identity": "^4.13.0",
+    "jsonwebtoken": "^9.0.0",
+    "jwks-rsa": "^3.1.0"
+  }
+}
