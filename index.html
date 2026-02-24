@@ -11,7 +11,7 @@
   <!-- Login Screen -->
   <div id="login-screen" class="login-screen">
     <div class="login-card">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4c6ef5" stroke-width="2">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#FA5D00" stroke-width="2">
         <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
       </svg>
       <h1>TimeTracker</h1>
@@ -29,92 +29,102 @@
       <p class="login-note">Microsoft employees only (@microsoft.com)</p>
     </div>
   </div>
+
   <div id="app" class="hidden">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="logo">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <span>TimeTracker</span>
+    <!-- Top Navigation Bar (Harvest-style) -->
+    <header class="top-nav">
+      <div class="nav-inner">
+        <nav class="main-tabs">
+          <button class="nav-tab active" data-view="timer">Time</button>
+          <button class="nav-tab" data-view="timesheet">Timesheet</button>
+          <button class="nav-tab" data-view="reports">Reports</button>
+          <button class="nav-tab" data-view="projects">Projects</button>
+        </nav>
+        <div class="nav-right">
+          <button id="exportBtn" class="nav-link" title="Export CSV">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+          <div id="userInfo" class="user-chip hidden"></div>
+          <button id="signOutBtn" class="nav-link" onclick="signOut()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign Out
+          </button>
+        </div>
       </div>
-      <div id="userInfo" class="user-info hidden"></div>
-      <nav>
-        <button class="nav-btn active" data-view="timer">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Time
-        </button>
-        <button class="nav-btn" data-view="timesheet">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Timesheet
-        </button>
-        <button class="nav-btn" data-view="reports">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          Reports
-        </button>
-        <button class="nav-btn" data-view="projects">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          Projects
-        </button>
-      </nav>
-      <div class="sidebar-footer">
-        <button id="exportBtn" class="export-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export CSV
-        </button>
-        <button id="signOutBtn" class="export-btn" onclick="signOut()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Sign Out
-        </button>
-      </div>
-    </aside>
+    </header>
 
     <!-- Main Content -->
-    <main class="main">
-      <!-- Timer View -->
+    <main class="content-area">
+
+      <!-- ===== Timer / Time View ===== -->
       <section id="view-timer" class="view active">
-        <div class="timer-bar">
-          <input type="text" id="taskDesc" class="task-input" placeholder="What are you working on?">
-          <select id="projectSelect" class="project-select">
-            <option value="">— Project —</option>
+        <!-- Date Header -->
+        <div class="date-header">
+          <div class="date-nav-group">
+            <button id="prevDay" class="arrow-btn">&lsaquo;</button>
+            <button id="nextDay" class="arrow-btn">&rsaquo;</button>
+            <h1 id="currentDateLabel" class="date-title"></h1>
+          </div>
+        </div>
+
+        <!-- Week Summary Bar -->
+        <div class="week-bar">
+          <div class="new-entry-trigger" id="newEntryBtn">
+            <div class="plus-icon">+</div>
+            <span class="new-entry-label">New entry</span>
+          </div>
+          <div class="week-days" id="weekDaysBar">
+            <!-- Mon–Sun day columns rendered by JS -->
+          </div>
+          <div class="week-total-col">
+            <span class="wt-label">Week total</span>
+            <strong id="weekTotalDisplay">0:00</strong>
+          </div>
+        </div>
+
+        <!-- Timer Input Bar -->
+        <div class="timer-input-bar" id="timerInputBar">
+          <input type="text" id="taskDesc" class="timer-desc-input" placeholder="What are you working on?">
+          <select id="projectSelect" class="timer-project-select">
+            <option value="">&mdash; Project &mdash;</option>
           </select>
           <div class="timer-display" id="timerDisplay">0:00:00</div>
-          <button id="timerToggle" class="timer-btn start">Start</button>
+          <button id="timerToggle" class="timer-action-btn start">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Start
+          </button>
         </div>
 
-        <div class="date-nav">
-          <button id="prevDay" class="date-arrow">&larr;</button>
-          <h2 id="currentDateLabel"></h2>
-          <button id="nextDay" class="date-arrow">&rarr;</button>
-          <span class="daily-total" id="dailyTotal">0:00</span>
-        </div>
+        <!-- Entries List -->
+        <div id="entriesList" class="entries-list"></div>
 
-        <div id="entriesList" class="entries-list">
-          <!-- entries render here -->
+        <!-- Daily Total Footer -->
+        <div class="daily-total-bar" id="dailyTotalBar">
+          <span>Total:</span>
+          <strong id="dailyTotal">0:00</strong>
         </div>
       </section>
 
-      <!-- Timesheet View -->
+      <!-- ===== Timesheet View ===== -->
       <section id="view-timesheet" class="view">
-        <div class="timesheet-header">
-          <button id="prevWeek" class="date-arrow">&larr;</button>
+        <div class="section-header">
+          <button id="prevWeek" class="arrow-btn">&lsaquo;</button>
+          <button id="nextWeek" class="arrow-btn">&rsaquo;</button>
           <h2 id="weekLabel"></h2>
-          <button id="nextWeek" class="date-arrow">&rarr;</button>
           <span class="weekly-total" id="weeklyTotal">0:00</span>
         </div>
-        <div class="timesheet-grid" id="timesheetGrid">
-          <!-- timesheet table renders here -->
-        </div>
+        <div class="timesheet-grid" id="timesheetGrid"></div>
       </section>
 
-      <!-- Reports View -->
+      <!-- ===== Reports View ===== -->
       <section id="view-reports" class="view">
-        <div class="reports-header">
+        <div class="section-header">
           <h2>Weekly Report</h2>
           <div class="report-controls">
-            <button id="prevReportWeek" class="date-arrow">&larr;</button>
+            <button id="prevReportWeek" class="arrow-btn">&lsaquo;</button>
             <span id="reportWeekLabel"></span>
-            <button id="nextReportWeek" class="date-arrow">&rarr;</button>
+            <button id="nextReportWeek" class="arrow-btn">&rsaquo;</button>
           </div>
         </div>
         <div class="charts-container">
@@ -130,14 +140,14 @@
         <div class="report-summary" id="reportSummary"></div>
       </section>
 
-      <!-- Projects View -->
+      <!-- ===== Projects View ===== -->
       <section id="view-projects" class="view">
-        <div class="projects-header">
+        <div class="section-header">
           <h2>Projects</h2>
-          <button id="addProjectBtn" class="add-project-btn">+ New Project</button>
+          <button id="addProjectBtn" class="btn-primary">+ New Project</button>
         </div>
         <div id="projectForm" class="project-form hidden">
-          <input type="text" id="projectName" placeholder="Project name" class="project-name-input">
+          <input type="text" id="projectName" placeholder="Project name" class="form-input">
           <div class="color-picker">
             <button class="color-dot" data-color="#fa5252" style="background:#fa5252"></button>
             <button class="color-dot" data-color="#e64980" style="background:#e64980"></button>

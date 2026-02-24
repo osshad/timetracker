@@ -128,17 +128,14 @@ function showApp(account) {
   if (loginScreen) loginScreen.classList.add('hidden');
   if (appEl) appEl.classList.remove('hidden');
 
-  // Display user info in sidebar
+  // Display user info in top nav
   const userEl = document.getElementById('userInfo');
   if (userEl && account) {
     const name = account.name || account.username;
     const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     userEl.innerHTML = `
       <div class="user-avatar">${initials}</div>
-      <div class="user-details">
-        <div class="user-name">${name}</div>
-        <div class="user-email">${account.username}</div>
-      </div>`;
+      <span class="user-name-top">${name}</span>`;
     userEl.classList.remove('hidden');
   }
 

@@ -34,6 +34,15 @@
   let timerStart = null;
   let timerInterval = null;
   let editingEntryId = null;
+  let syncInterval = null;
+  const SYNC_INTERVAL_MS = 30000; // Poll every 30 seconds
+
+  // Unique device ID to distinguish which device started the timer
+  const deviceId = (() => {
+    let id = localStorage.getItem('tt_device_id');
+    if (!id) { id = genId(); localStorage.setItem('tt_device_id', id); }
+    return id;
+  })();
 
   // Running timer kept in localStorage (client-side only until stopped)
   const savedTimer = (() => {
@@ -70,9 +79,10 @@
   function formatDateLabel(d) {
     const today = new Date();
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    if (dateKey(d) === dateKey(today)) return 'Today';
-    if (dateKey(d) === dateKey(yesterday)) return 'Yesterday';
-    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+    const dayPart = d.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' });
+    if (dateKey(d) === dateKey(today)) return 'Today: ' + dayPart;
+    if (dateKey(d) === dateKey(yesterday)) return 'Yesterday: ' + dayPart;
+    return dayPart;
   }
 
   function getWeekStart(d) {
@@ -113,22 +123,42 @@
     populateProjectSelects();
     renderEntries();
 
-    // Restore running timer from localStorage
-    if (savedTimer) {
-      timerStart = new Date(savedTimer.start);
-      document.getElementById('taskDesc').value = savedTimer.desc || '';
-      document.getElementById('projectSelect').value = savedTimer.projectId || '';
-      startTimerUI();
+    // Restore running timer: check remote state first, then fall back to localStorage
+    try {
+      const remoteTimer = await api('timer-state');
+      if (remoteTimer && remoteTimer.running) {
+        timerStart = new Date(remoteTimer.start);
+        document.getElementById('taskDesc').value = remoteTimer.desc || '';
+        document.getElementById('projectSelect').value = remoteTimer.projectId || '';
+        startTimerUI();
+      } else if (savedTimer) {
+        timerStart = new Date(savedTimer.start);
+        document.getElementById('taskDesc').value = savedTimer.desc || '';
+        document.getElementById('projectSelect').value = savedTimer.projectId || '';
+        startTimerUI();
+        syncTimerToAPI();
+      }
+    } catch (err) {
+      // Fall back to localStorage if API fails
+      if (savedTimer) {
+        timerStart = new Date(savedTimer.start);
+        document.getElementById('taskDesc').value = savedTimer.desc || '';
+        document.getElementById('projectSelect').value = savedTimer.projectId || '';
+        startTimerUI();
+      }
     }
+
+    // Start cross-device polling
+    startPolling();
   }
 
   // Expose globally so auth.js can call it after login
   window.initTimeTracker = loadData;
 
   // -- Navigation --
-  document.querySelectorAll('.nav-btn').forEach(function(btn) {
+  document.querySelectorAll('.nav-tab').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.nav-tab').forEach(function(b) { b.classList.remove('active'); });
       btn.classList.add('active');
       document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
       document.getElementById('view-' + btn.dataset.view).classList.add('active');
@@ -137,6 +167,12 @@
       if (btn.dataset.view === 'reports') renderReports();
       if (btn.dataset.view === 'projects') renderProjects();
     });
+  });
+
+  // -- New Entry button (focus timer bar) --
+  document.getElementById('newEntryBtn').addEventListener('click', function() {
+    taskDesc.focus();
+    document.getElementById('timerInputBar').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
   // -- Timer --
@@ -150,14 +186,18 @@
     else startTimer();
   });
 
+  const CLOCK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+
   function startTimerUI() {
     timerRunning = true;
-    timerToggle.textContent = 'Stop';
-    timerToggle.className = 'timer-btn stop';
+    timerToggle.innerHTML = CLOCK_SVG + ' Stop';
+    timerToggle.className = 'timer-action-btn stop';
+    document.getElementById('timerInputBar').classList.add('running');
     timerInterval = setInterval(function() {
       timerDisplay.textContent = formatTimer(Date.now() - timerStart.getTime());
     }, 1000);
     timerDisplay.textContent = formatTimer(Date.now() - timerStart.getTime());
+    renderWeekBar();
   }
 
   function startTimer() {
@@ -168,11 +208,14 @@
       projectId: projectSelect.value
     }));
     startTimerUI();
+    // Sync timer state to API for cross-device visibility
+    syncTimerToAPI();
   }
 
   async function stopTimer() {
     timerRunning = false;
     clearInterval(timerInterval);
+    renderWeekBar();
 
     const end = new Date();
     const entry = {
@@ -194,10 +237,14 @@
     }
 
     localStorage.removeItem('tt_running_timer');
-    timerToggle.textContent = 'Start';
-    timerToggle.className = 'timer-btn start';
+    timerToggle.innerHTML = CLOCK_SVG + ' Start';
+    timerToggle.className = 'timer-action-btn start';
+    document.getElementById('timerInputBar').classList.remove('running');
     timerDisplay.textContent = '0:00:00';
     taskDesc.value = '';
+
+    // Clear remote timer state
+    clearTimerFromAPI();
 
     currentDate = new Date(timerStart);
     renderEntries();
@@ -212,8 +259,132 @@
         desc: taskDesc.value,
         projectId: projectSelect.value
       }));
+      syncTimerToAPI();
     }
   }
+
+  // -- Cross-device sync --
+  async function syncTimerToAPI() {
+    try {
+      await api('timer-state', {
+        method: 'PUT',
+        body: {
+          start: timerStart.toISOString(),
+          desc: taskDesc.value,
+          projectId: projectSelect.value,
+          deviceId: deviceId
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to sync timer state:', err);
+    }
+  }
+
+  async function clearTimerFromAPI() {
+    try {
+      await api('timer-state', { method: 'DELETE' });
+    } catch (err) {
+      console.warn('Failed to clear remote timer state:', err);
+    }
+  }
+
+  async function pollSync() {
+    try {
+      // 1. Check remote timer state
+      const remoteTimer = await api('timer-state');
+
+      if (remoteTimer && remoteTimer.running) {
+        // Timer is running remotely
+        if (!timerRunning) {
+          // Start the timer locally to match remote state
+          timerStart = new Date(remoteTimer.start);
+          taskDesc.value = remoteTimer.desc || '';
+          projectSelect.value = remoteTimer.projectId || '';
+          localStorage.setItem('tt_running_timer', JSON.stringify({
+            start: timerStart.toISOString(),
+            desc: remoteTimer.desc || '',
+            projectId: remoteTimer.projectId || ''
+          }));
+          startTimerUI();
+          showSyncNotice('Timer synced from another device');
+        } else if (remoteTimer.deviceId !== deviceId) {
+          // Update description/project if changed on another device
+          if (remoteTimer.desc !== taskDesc.value || remoteTimer.projectId !== projectSelect.value) {
+            taskDesc.value = remoteTimer.desc || '';
+            projectSelect.value = remoteTimer.projectId || '';
+          }
+          // Sync start time if different (timer was restarted on other device)
+          const remoteStart = new Date(remoteTimer.start).getTime();
+          if (Math.abs(remoteStart - timerStart.getTime()) > 2000) {
+            timerStart = new Date(remoteTimer.start);
+            localStorage.setItem('tt_running_timer', JSON.stringify({
+              start: timerStart.toISOString(),
+              desc: remoteTimer.desc || '',
+              projectId: remoteTimer.projectId || ''
+            }));
+          }
+        }
+      } else if (!remoteTimer.running && timerRunning) {
+        // Timer was stopped on another device — stop locally too
+        timerRunning = false;
+        clearInterval(timerInterval);
+        localStorage.removeItem('tt_running_timer');
+        timerToggle.innerHTML = CLOCK_SVG + ' Start';
+        timerToggle.className = 'timer-action-btn start';
+        document.getElementById('timerInputBar').classList.remove('running');
+        timerDisplay.textContent = '0:00:00';
+        taskDesc.value = '';
+        showSyncNotice('Timer stopped from another device');
+      }
+
+      // 2. Refresh entries for the current view
+      const freshEntries = await api('entries?date=' + dateKey(currentDate));
+      const key = dateKey(currentDate);
+      const oldDayEntries = entries.filter(function(e) { return e.date === key; });
+      const changed = freshEntries.length !== oldDayEntries.length ||
+        JSON.stringify(freshEntries.map(function(e) { return e.id; }).sort()) !==
+        JSON.stringify(oldDayEntries.map(function(e) { return e.id; }).sort());
+      if (changed) {
+        entries = entries.filter(function(e) { return e.date !== key; }).concat(freshEntries);
+        renderEntries();
+      }
+    } catch (err) {
+      // Silent fail — don't disrupt the user
+      console.warn('Sync poll failed:', err);
+    }
+  }
+
+  function showSyncNotice(msg) {
+    let notice = document.getElementById('syncNotice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'syncNotice';
+      notice.style.cssText = 'position:fixed;top:16px;right:16px;background:#4c6ef5;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;box-shadow:0 2px 12px rgba(0,0,0,0.15)';
+      document.body.appendChild(notice);
+    }
+    notice.textContent = msg;
+    notice.style.opacity = '1';
+    setTimeout(function() { notice.style.opacity = '0'; }, 3000);
+  }
+
+  function startPolling() {
+    if (syncInterval) return;
+    syncInterval = setInterval(pollSync, SYNC_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+  }
+
+  // Pause polling when tab is hidden, resume when visible
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      stopPolling();
+    } else {
+      pollSync(); // Immediate sync when returning to tab
+      startPolling();
+    }
+  });
 
   // -- Date Navigation --
   document.getElementById('prevDay').addEventListener('click', function() {
@@ -235,7 +406,7 @@
     renderEntries();
   }
 
-  // -- Render Entries --
+  // -- Render Entries (Harvest-style) --
   function renderEntries() {
     document.getElementById('currentDateLabel').textContent = formatDateLabel(currentDate);
 
@@ -247,22 +418,99 @@
     const list = document.getElementById('entriesList');
     if (dayEntries.length === 0) {
       list.innerHTML = '<div class="no-entries"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><p>No time entries for this day</p><p style="font-size:13px">Start the timer above to track your work</p></div>';
+      renderWeekBar();
       return;
     }
 
     list.innerHTML = dayEntries.map(function(e) {
       const project = projects.find(function(p) { return p.id === e.projectId; });
+      const projLabel = project ? '<span class="entry-project-inline">(' + escapeHtml(project.name) + ')</span>' : '';
       return '<div class="entry-row" data-id="' + e.id + '">' +
-        '<div class="entry-color" style="background:' + (project ? project.color : '#ccc') + '"></div>' +
-        '<div class="entry-desc">' + escapeHtml(e.desc) + '</div>' +
-        (project ? '<span class="entry-project">' + escapeHtml(project.name) + '</span>' : '') +
-        '<span class="entry-times">' + formatTime(e.start) + ' \u2013 ' + formatTime(e.end) + '</span>' +
+        '<div class="entry-info">' +
+          '<div class="entry-title"><strong>' + escapeHtml(e.desc) + '</strong> ' + projLabel + '</div>' +
+          '<div class="entry-meta">' + formatTime(e.start) + ' \u2013 ' + formatTime(e.end) + '</div>' +
+        '</div>' +
         '<span class="entry-duration">' + formatDuration(e.duration) + '</span>' +
+        '<div class="entry-actions">' +
+          '<button class="entry-start-btn" data-desc="' + escapeHtml(e.desc).replace(/"/g, '&quot;') + '" data-project="' + (e.projectId || '') + '">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+            ' Start</button>' +
+          '<button class="entry-edit-btn" data-id="' + e.id + '">Edit</button>' +
+        '</div>' +
         '</div>';
     }).join('');
 
-    list.querySelectorAll('.entry-row').forEach(function(row) {
-      row.addEventListener('click', function() { openEditModal(row.dataset.id); });
+    // Edit button opens modal
+    list.querySelectorAll('.entry-edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openEditModal(btn.dataset.id);
+      });
+    });
+
+    // Start button restarts timer with same desc/project
+    list.querySelectorAll('.entry-start-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        restartEntry(btn.dataset.desc, btn.dataset.project);
+      });
+    });
+
+    renderWeekBar();
+  }
+
+  // -- Restart entry (like Harvest Start button) --
+  function restartEntry(desc, projectId) {
+    if (timerRunning) {
+      // Stop and save current timer first
+      stopTimer().then(function() {
+        taskDesc.value = desc;
+        projectSelect.value = projectId || '';
+        startTimer();
+      });
+    } else {
+      taskDesc.value = desc;
+      projectSelect.value = projectId || '';
+      startTimer();
+    }
+  }
+
+  // -- Render Week Bar --
+  function renderWeekBar() {
+    const weekStart = getWeekStart(currentDate);
+    const days = getWeekDays(weekStart);
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const today = new Date();
+    const todayKey = dateKey(today);
+    const selectedKey = dateKey(currentDate);
+    let weekTotalMs = 0;
+
+    const html = days.map(function(d, i) {
+      const dk = dateKey(d);
+      const dayEntries = entries.filter(function(e) { return e.date === dk; });
+      const totalMs = dayEntries.reduce(function(s, e) { return s + e.duration; }, 0);
+      weekTotalMs += totalMs;
+      const isToday = dk === todayKey;
+      const isSelected = dk === selectedKey;
+      const hasTimer = isToday && timerRunning;
+      const cls = 'week-day-col' + (isToday ? ' today' : '') + (isSelected ? ' selected' : '');
+
+      return '<div class="' + cls + '" data-date="' + dk + '">' +
+        '<div class="week-day-name">' + dayNames[i] + (hasTimer ? ' \u23F1' : '') + '</div>' +
+        '<div class="week-day-hours">' + (totalMs > 0 ? formatDuration(totalMs) : '0:00') + '</div>' +
+        '</div>';
+    }).join('');
+
+    document.getElementById('weekDaysBar').innerHTML = html;
+    document.getElementById('weekTotalDisplay').textContent = formatDuration(weekTotalMs);
+
+    // Click a day to navigate
+    document.querySelectorAll('.week-day-col').forEach(function(col) {
+      col.addEventListener('click', function() {
+        var parts = col.dataset.date.split('-');
+        currentDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        loadEntriesForDate();
+      });
     });
   }
 
